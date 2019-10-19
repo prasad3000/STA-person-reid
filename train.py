@@ -45,6 +45,9 @@ trainInds,testInds = partitionDataset(len(dataset),0.5)
 from model import *
 import timeit
 from DataUtils import getPosSample,getNegSample,prepare_person_seq
+from torch.autograd import Variable
+import torch.nn as nn
+import math
 
 
 model = FCN32()
@@ -65,10 +68,10 @@ for epoch in range(1, nEpoch+1):
             camA = 0
             camB = 1
             
-            startA, startB, seq_length = getPosSample(dataset, trainInds, order[i/2], sampleSeqLength)
-            netInA = dataset[trainInds[order[i/2]]][camA][startA:(startA + seq_length),:,:,:].squeeze()
-            netInB = dataset[trainInds[order[i/2]]][camB][startB:(startB + seq_length),:,:,:].squeeze()
-            netTarget = [1, (order[i/2]), (order[i/2])]
+            startA, startB, seq_length = getPosSample(dataset, trainInds, order[int(i/2)], sampleSeqLength)
+            netInA = dataset[trainInds[order[int(i/2)]]][camA][startA:(startA + seq_length),:,:,:].squeeze()
+            netInB = dataset[trainInds[order[int(i/2)]]][camB][startB:(startB + seq_length),:,:,:].squeeze()
+            netTarget = [1, (order[int(i/2)]), (order[int(i/2)])]
             
         else:
             pushPull = -1
@@ -76,8 +79,78 @@ for epoch in range(1, nEpoch+1):
             netInA = dataset[trainInds[seqA]][camA][startA:(startA + seq_length),:,:,:].squeeze()
             netInB = dataset[trainInds[seqB]][camB][startB:(startB + seq_length),:,:,:].squeeze()
             netTarget = [-1,seqA,seqB]
+        
+        cropxA = torch.floor(torch.rand(1).squeeze() * 8) + 1
+        cropyA = torch.floor(torch.rand(1).squeeze() * 8) + 1
+        cropxB = torch.floor(torch.rand(1).squeeze() * 8) + 1
+        cropyB = torch.floor(torch.rand(1).squeeze() * 8) + 1
+        
+        flipA = torch.floor(torch.rand(1).squeeze() * 2) + 1
+        flipB = torch.floor(torch.rand(1).squeeze() * 2) + 1
+        
+        netInA = doDataAug(netInA, cropxA, cropyA, flipA)
+        netInB = doDataAug(netInB, cropxB, cropyB, flipB)
+        
+        netInA = Variable(netInA).cuda()
+        netInB = Variable(netInB).cuda()
+        
+        optimizer.zero_grad()
+        
+        # losses
+        hingeLoss = nn.HingeEmbeddingLoss()
+        criterion1 = nn.NLLLoss()
+        criterion2 = nn.NLLLoss()
+        
+        # pass the data to model
+        comb_features1, lsmax1 = model(netInA)
+        comb_features2, lsmax2 = model(netInB)
+        
+        # calculate 12 pairwise distance
+        distance = nn.PairwiseDistance(p = 2)
+        target1 = Variable(torch.Tensor([netTarget[0]]).cuda()).type(torch.cuda.LongTensor)
+        target2 = Variable(torch.Tensor([netTarget[1]]).cuda()).type(torch.cuda.LongTensor)
+        target3 = Variable(torch.Tensor([netTarget[2]]).cuda()).type(torch.cuda.LongTensor)
+        
+        dist = distance(comb_features1, comb_features2)
+        loss = hingeLoss(dist, target1) + criterion1(lsmax1, target2) + criterion2(lsmax2, target3)
+        
+        batchError = batchError + loss
+        
+        loss.backward()
+        optimizer.step()
+        
+    
+        
+    toc = timeit.default_timer()
+    print(epoch)
+    
+    if epoch == 1300:
+        lr = lr/10
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)
+        
+    if (epoch % 100 == 0):
+        print('__________________________________________________________________')
+        print(epoch)
+        '''cmcTest, simMatTest = computeCMC(dataset, testInds, model, sampleSeqLength)
+        cmcTrain, simMatTrain = computeCMC(dataset, trainInds, model, sampleSeqLength)
+        
+        strTest = 'Test'
+        strTrain = 'Train'
+        
+        inds = [0,1,2,3,4,5,6,7,8,9,10]
+        
+        for c in range(len(inds)):
+            if c< nTrainPersons:
+                sTest = strTest + str(int(math.floor(cmcTest[inds[c]]))) + '   '
+                sTrain = strTrain + str(int(math.floor(cmcTrain[inds[c]]))) + '   '
+    
+                print(sTest)
+                print(sTrain)'''
+                
+        model.train()
+        
             
-            
+torch.save(model, 'trained_model/model.pt')            
             
 
 
@@ -91,9 +164,9 @@ def doDataAug(seq,cropx,cropy,flip):
     seqDim1 = seq.shape[2]
     seqDim2 = seq.shape[3]
     
-    cropx=int(cropx[0])
-    cropy=int(cropy[0])
-    flip=flip[0]
+    cropx=int(cropx)
+    cropy=int(cropy)
+    flip=flip
 	
     daData = torch.zeros(seqLen,seqChnls,seqDim1-8,seqDim2-8)
 	#to_pillow_image=transforms.ToPILImage()

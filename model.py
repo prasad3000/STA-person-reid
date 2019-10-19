@@ -349,7 +349,7 @@ class FCN32(nn.Module):
         self.tanh = nn.Tanh()
         self.pool2 = nn.MaxPool2d((2, 2), (2, 2))
 
-        self.pad1 = nn.ZeroPad2d(4)
+        self.pad3 = nn.ZeroPad2d(4)
         self.cnn_conv3 = nn.Conv2d(32, 32, (5, 5), (1, 1))
         self.tanh = nn.Tanh()
         self.pool3 = nn.MaxPool2d((2, 2), (2, 2))
@@ -387,7 +387,7 @@ class FCN32(nn.Module):
     
         cnn = self.fc(self.cnn_dropout(cnn.view(-1, 32*10*8)))
          
-        features = cnn.tranpose(0, 1).unsqueeze(0).unsqueeze(2) #(1L, 128L, 1L, 16L)
+        features = cnn.transpose(0, 1).unsqueeze(0).unsqueeze(2) #(1L, 128L, 1L, 16L)
         
         hidden = self.drop(self.fc6(features))
         
